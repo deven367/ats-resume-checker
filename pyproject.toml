@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.30.0"]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 ats-check = "ats_checker.cli:main"
