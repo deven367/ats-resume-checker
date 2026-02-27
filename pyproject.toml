@@ -23,4 +23,19 @@ include = ["ats_checker*"]
 
 [dependency-groups]
 anthropic = ["anthropic>=0.30.0"]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "pytest-cov>=6.0"]
+
+[tool.coverage.run]
+branch = true
+source = ["ats_checker"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=80",
+]
+testpaths = ["tests"]
