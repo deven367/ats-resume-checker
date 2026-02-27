@@ -1,9 +1,13 @@
 """CLI entry point for ATS Resume Checker."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -75,6 +79,14 @@ def _render_report(report: ATSReport, filepath: Path) -> None:
 @app.command()
 def check(
     resume: Path = typer.Argument(..., help="Path to resume file (PDF or DOCX)."),
+    llm: Optional[str] = typer.Option(
+        None,
+        help=(
+            "Get AI-powered next steps. "
+            "Pass 'openai', 'anthropic', or 'auto' (picks whichever key is set). "
+            "Requires OPENAI_API_KEY or ANTHROPIC_API_KEY env var."
+        ),
+    ),
 ) -> None:
     """Analyse a resume for ATS compatibility and suggest improvements."""
     if not resume.exists():
@@ -98,6 +110,30 @@ def check(
 
     report = analyse_resume(text)
     _render_report(report, resume)
+
+    if llm is not None:
+        _run_llm(report, text, llm)
+
+
+def _run_llm(report: ATSReport, resume_text: str, provider_flag: str) -> None:
+    from .llm import get_llm_suggestions
+
+    provider = None if provider_flag == "auto" else provider_flag
+
+    with console.status("Asking LLM for next steps…"):
+        try:
+            result = get_llm_suggestions(report, resume_text, provider=provider)
+        except Exception as exc:
+            console.print(f"[red]LLM error:[/red] {exc}")
+            return
+
+    console.print(
+        Panel(
+            Markdown(result.suggestions),
+            title=f"AI Next Steps  ({result.provider} / {result.model})",
+            border_style="cyan",
+        )
+    )
 
 
 def main() -> None:
