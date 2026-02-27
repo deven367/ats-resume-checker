@@ -1,0 +1,4 @@
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+rich>=13.7.0
+typer>=0.12.0
