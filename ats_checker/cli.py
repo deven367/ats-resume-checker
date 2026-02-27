@@ -112,6 +112,13 @@ def check(
     _render_report(report, resume)
 
     if llm is not None:
+        _valid = {"openai", "anthropic", "auto"}
+        if llm not in _valid:
+            console.print(
+                f"[red]Error:[/red] Invalid --llm value '{llm}'. "
+                f"Choose from: {', '.join(sorted(_valid))}."
+            )
+            raise typer.Exit(code=1)
         _run_llm(report, text, llm)
 
 

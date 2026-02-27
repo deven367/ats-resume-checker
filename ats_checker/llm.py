@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .checker import ATSReport
@@ -14,12 +15,30 @@ SYSTEM_PROMPT = (
     "Do NOT repeat the scores — focus only on what to do next."
 )
 
+VALID_PROVIDERS = {"openai", "anthropic"}
+
+_SENTENCE_END_RE = re.compile(r"[.!?]\s+")
+MAX_RESUME_CHARS = 3000
+
 
 @dataclass
 class LLMResult:
     provider: str
     model: str
     suggestions: str
+
+
+def _truncate_at_sentence(text: str, limit: int = MAX_RESUME_CHARS) -> str:
+    """Truncate *text* to at most *limit* chars, breaking at the last sentence boundary."""
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit]
+    match = None
+    for match in _SENTENCE_END_RE.finditer(truncated):
+        pass
+    if match and match.end() > limit // 2:
+        return truncated[: match.end()].rstrip()
+    return truncated
 
 
 def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
@@ -30,40 +49,56 @@ def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
             lines.append(f"  - Warning: {w}")
         for s in check.suggestions:
             lines.append(f"  - Suggestion: {s}")
-    lines.append("\n--- Resume text (first 3000 chars) ---")
-    lines.append(resume_text[:3000])
+    lines.append("\n--- Resume text (truncated) ---")
+    lines.append(_truncate_at_sentence(resume_text))
     return "\n".join(lines)
 
 
 def _call_openai(prompt: str) -> LLMResult:
-    from openai import OpenAI
+    from openai import OpenAI, OpenAIError
 
     model = "gpt-4o-mini"
-    client = OpenAI()
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=1024,
-        temperature=0.7,
-    )
-    return LLMResult("OpenAI", model, resp.choices[0].message.content)
+    try:
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=1024,
+            temperature=0.7,
+        )
+    except OpenAIError:
+        raise
+
+    content = resp.choices[0].message.content
+    if not content:
+        raise RuntimeError("OpenAI returned an empty response.")
+    return LLMResult("OpenAI", model, content)
 
 
 def _call_anthropic(prompt: str) -> LLMResult:
-    from anthropic import Anthropic
+    from anthropic import Anthropic, APIError
 
-    model = "claude-haiku-4-5"
-    client = Anthropic()
-    resp = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return LLMResult("Anthropic", model, resp.content[0].text)
+    model = "claude-3-5-haiku-latest"
+    try:
+        client = Anthropic()
+        resp = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except APIError:
+        raise
+
+    if not resp.content:
+        raise RuntimeError("Anthropic returned an empty response.")
+    text = resp.content[0].text
+    if not text:
+        raise RuntimeError("Anthropic response contained no text content.")
+    return LLMResult("Anthropic", model, text)
 
 
 def get_llm_suggestions(
@@ -77,6 +112,11 @@ def get_llm_suggestions(
     by trying openai first, then anthropic).
     API keys are read from the standard env vars by each SDK.
     """
+    if provider is not None and provider not in VALID_PROVIDERS:
+        raise ValueError(
+            f"Invalid provider '{provider}'. Choose from: {', '.join(sorted(VALID_PROVIDERS))}"
+        )
+
     prompt = _build_user_prompt(report, resume_text)
 
     if provider == "openai":
@@ -85,17 +125,15 @@ def get_llm_suggestions(
         return _call_anthropic(prompt)
 
     # Auto: try openai, fall back to anthropic
-    try:
-        return _call_openai(prompt)
-    except Exception:
-        pass
-    try:
-        return _call_anthropic(prompt)
-    except Exception:
-        pass
+    last_err: Exception | None = None
+    for call_fn in (_call_openai, _call_anthropic):
+        try:
+            return call_fn(prompt)
+        except (ImportError, RuntimeError, Exception) as exc:
+            last_err = exc
 
     raise RuntimeError(
         "Neither openai nor anthropic SDK could connect. "
         "Install one (pip install openai / pip install anthropic) "
-        "and set the corresponding API key env var."
+        f"and set the corresponding API key env var. Last error: {last_err}"
     )

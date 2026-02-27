@@ -12,8 +12,8 @@ and gives actionable feedback. Rule-based scoring with optional LLM-powered next
 - `python-docx` — DOCX text extraction
 - `typer` + `rich` — CLI framework and terminal output
 - `openai` SDK — LLM suggestions via gpt-4o-mini (included)
-- `anthropic` SDK — optional provider (`pip install -e ".[anthropic]"`)
-- Installable via `pip install -e .` (uses `pyproject.toml`)
+- `anthropic` SDK — optional provider (`uv sync --group anthropic`)
+- Installable via `uv sync` or `pip install -e .` (uses `pyproject.toml`)
 
 ## Project structure
 
@@ -64,3 +64,6 @@ python -m ats_checker resume.docx            # module invocation
 - Workspace uses a venv created from miniforge Python 3.10 (`.venv/`)
 - `pyproject.toml` declares the `ats-check` console script
 - `requirements.txt` kept in sync for users who prefer `pip install -r`
+- Uses `[dependency-groups]` (PEP 735) for test/anthropic deps — requires `uv`
+- Run tests: `uv run pytest tests/ -v`
+- CI runs on Python 3.10-3.12 via GitHub Actions with `uv`
