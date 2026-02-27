@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Simple CLI tool to score resumes for ATS compatibility."
 requires-python = ">=3.10"
 dependencies = [
+    "openai>=1.0.0",
     "pdfplumber>=0.11.0",
     "python-docx>=1.1.0",
     "rich>=13.7.0",
@@ -19,3 +20,22 @@ ats-check = "ats_checker.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["ats_checker*"]
+
+[dependency-groups]
+anthropic = ["anthropic>=0.30.0"]
+test = ["pytest>=8.0", "pytest-cov>=6.0"]
+
+[tool.coverage.run]
+branch = true
+source = ["ats_checker"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.pytest.ini_options]
+addopts = [
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=80",
+]
+testpaths = ["tests"]
