@@ -55,7 +55,7 @@ def _call_openai(prompt: str) -> LLMResult:
 def _call_anthropic(prompt: str) -> LLMResult:
     from anthropic import Anthropic
 
-    model = "claude-3-5-haiku-latest"
+    model = "claude-haiku-4-5"
     client = Anthropic()
     resp = client.messages.create(
         model=model,
