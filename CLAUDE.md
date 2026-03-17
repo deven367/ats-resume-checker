@@ -71,5 +71,14 @@ python -m ats_checker resume.docx            # module invocation
 - `pyproject.toml` declares the `ats-check` console script
 - `requirements.txt` kept in sync for users who prefer `pip install -r`
 - Uses `[dependency-groups]` (PEP 735) for test/anthropic deps — requires `uv`
-- Run tests: `uv run pytest tests/ -v`
+- Run tests: `.venv/bin/python -m pytest tests/ -v` (or `uv run pytest tests/ -v`)
 - CI runs on Python 3.10-3.12 via GitHub Actions with `uv`
+
+## Session learnings
+
+- `source .venv/bin/activate` may not work in sandboxed shells; use `.venv/bin/python` directly
+- Summary, Projects, Certifications are optional resume sections — don't penalize if missing
+- When `--llm` is used, regex checks are redundant — let the LLM do the full analysis
+- `llm.py` has two modes: `get_llm_suggestions()` (supplement existing report) and `get_full_analysis()` (LLM-only, no regex)
+- Anthropic model alias is `claude-3-5-haiku-latest` (not `claude-haiku-4-5`)
+- Always validate CLI flag inputs; `--llm` only accepts `openai`, `anthropic`, `auto`
