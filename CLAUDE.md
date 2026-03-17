@@ -59,6 +59,12 @@ python -m ats_checker resume.docx            # module invocation
 - All checks return `CheckResult` with `passed`, `warnings`, and `suggestions`
 - `typer` chosen for minimal CLI boilerplate; `rich` for colored terminal output
 
+## Workflow conventions
+
+- Update CLAUDE.md after every session with what was learnt
+- New features and refactors always go through PRs (never commit directly to main)
+- After every iteration, run and verify tests before pushing
+
 ## Development notes
 
 - Workspace uses a venv created from miniforge Python 3.10 (`.venv/`)
