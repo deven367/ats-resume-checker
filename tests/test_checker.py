@@ -38,7 +38,13 @@ class TestSections:
     def test_no_sections(self, bare_resume_text: str):
         r = _check_sections(bare_resume_text)
         assert r.score == 0
-        assert len(r.warnings) == 6
+        assert len(r.warnings) == 3  # only required sections warn
+
+    def test_optional_sections_no_warning(self):
+        text = "Experience\nEducation\nSkills"
+        r = _check_sections(text)
+        assert len(r.warnings) == 0
+        assert r.score == round(3 / 6 * 20)
 
 
 class TestActionVerbs:
