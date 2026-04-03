@@ -108,9 +108,6 @@ def check(
         console.print("[red]Error:[/red] Could not extract any text from the file.")
         raise typer.Exit(code=1)
 
-    report = analyse_resume(text)
-    _render_report(report, resume)
-
     if llm is not None:
         _valid = {"openai", "anthropic", "auto"}
         if llm not in _valid:
@@ -119,25 +116,29 @@ def check(
                 f"Choose from: {', '.join(sorted(_valid))}."
             )
             raise typer.Exit(code=1)
-        _run_llm(report, text, llm)
+        _run_llm(text, resume, llm)
+    else:
+        report = analyse_resume(text)
+        _render_report(report, resume)
 
 
-def _run_llm(report: ATSReport, resume_text: str, provider_flag: str) -> None:
-    from .llm import get_llm_suggestions
+def _run_llm(resume_text: str, filepath: Path, provider_flag: str) -> None:
+    from .llm import get_full_analysis
 
     provider = None if provider_flag == "auto" else provider_flag
 
-    with console.status("Asking LLM for next steps…"):
+    with console.status("Asking LLM to analyse resume…"):
         try:
-            result = get_llm_suggestions(report, resume_text, provider=provider)
+            result = get_full_analysis(resume_text, provider=provider)
         except Exception as exc:
             console.print(f"[red]LLM error:[/red] {exc}")
-            return
+            raise typer.Exit(code=1) from exc
 
+    console.print()
     console.print(
         Panel(
             Markdown(result.suggestions),
-            title=f"AI Next Steps  ({result.provider} / {result.model})",
+            title=f"ATS Analysis — {filepath.name}  ({result.provider} / {result.model})",
             border_style="cyan",
         )
     )
