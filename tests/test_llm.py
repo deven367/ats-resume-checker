@@ -53,6 +53,28 @@ class TestBuildPrompt:
         assert "x" * 3000 in prompt
         assert "x" * 3001 not in prompt
 
+    def test_preserves_later_sections_in_long_resume(self, dummy_report: ATSReport):
+        experience_lines = [f"- Built service {i} {'x' * 140}" for i in range(30)]
+        long_resume = "\n".join(
+            [
+                "Jane Doe",
+                "jane@example.com | (555) 111-2222",
+                "Experience",
+                *experience_lines,
+                "Education",
+                "B.S. Computer Science - MIT",
+                "Skills",
+                "Python, SQL, AWS",
+            ]
+        )
+
+        prompt = _build_user_prompt(dummy_report, long_resume)
+
+        assert len(prompt) > 0
+        assert "## Experience" in prompt
+        assert "## Education" in prompt
+        assert "## Skills" in prompt
+
 
 class TestGetLLMSuggestions:
     @patch("ats_checker.llm._call_openai")
