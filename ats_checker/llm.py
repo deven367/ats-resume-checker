@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from .checker import ATSReport
 from .parser import split_resume_sections
 
-SYSTEM_PROMPT = (
+VALID_PROVIDERS = {"openai", "anthropic"}
+
+_SENTENCE_END_RE = re.compile(r"[.!?]\s+")
+MAX_RESUME_CHARS = 3000
+
+SUPPLEMENT_PROMPT = (
     "You are an expert career coach and resume reviewer. "
     "Given an ATS compatibility report for a candidate's resume, "
     "provide 3-5 concise, actionable next steps the candidate should take "
@@ -16,10 +21,15 @@ SYSTEM_PROMPT = (
     "Do NOT repeat the scores — focus only on what to do next."
 )
 
-VALID_PROVIDERS = {"openai", "anthropic"}
-
-_SENTENCE_END_RE = re.compile(r"[.!?]\s+")
-MAX_RESUME_CHARS = 3000
+FULL_ANALYSIS_PROMPT = (
+    "You are an expert career coach and ATS (Applicant Tracking System) specialist. "
+    "Analyse the following resume for ATS compatibility. Provide:\n"
+    "1. An overall ATS compatibility score out of 100.\n"
+    "2. A brief critique covering: contact info, section structure, "
+    "action verbs, quantifiable results, length, formatting, and skills/keywords.\n"
+    "3. 3-5 specific, actionable steps to improve the resume.\n\n"
+    "Be concise and practical. Use markdown formatting."
+)
 
 
 @dataclass
@@ -86,7 +96,8 @@ def _format_resume_for_prompt(resume_text: str, limit: int = MAX_RESUME_CHARS) -
     return formatted or _truncate_at_sentence(resume_text, limit)
 
 
-def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
+def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, str]:
+    """Build a prompt that supplements an existing rule-based report."""
     lines = [f"Overall ATS score: {report.overall_score}/100\n"]
     for check in report.checks:
         lines.append(f"## {check.name} [{check.score}/{check.max_score}]")
@@ -98,8 +109,12 @@ def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
     lines.append(_format_resume_for_prompt(resume_text))
     return "\n".join(lines)
 
+def _build_full_analysis_prompt(resume_text: str) -> tuple[str, str]:
+    """Build a prompt for full LLM-only analysis (no regex report)."""
+    return FULL_ANALYSIS_PROMPT, _truncate_at_sentence(resume_text)
 
-def _call_openai(prompt: str) -> LLMResult:
+
+def _call_openai(system: str, user: str) -> LLMResult:
     from openai import OpenAI, OpenAIError
 
     model = "gpt-4o-mini"
@@ -108,8 +123,8 @@ def _call_openai(prompt: str) -> LLMResult:
         resp = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
             ],
             max_tokens=1024,
             temperature=0.7,
@@ -123,7 +138,7 @@ def _call_openai(prompt: str) -> LLMResult:
     return LLMResult("OpenAI", model, content)
 
 
-def _call_anthropic(prompt: str) -> LLMResult:
+def _call_anthropic(system: str, user: str) -> LLMResult:
     from anthropic import Anthropic, APIError
 
     model = "claude-3-5-haiku-latest"
@@ -132,8 +147,8 @@ def _call_anthropic(prompt: str) -> LLMResult:
         resp = client.messages.create(
             model=model,
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+            system=system,
+            messages=[{"role": "user", "content": user}],
         )
     except APIError:
         raise
@@ -146,34 +161,17 @@ def _call_anthropic(prompt: str) -> LLMResult:
     return LLMResult("Anthropic", model, text)
 
 
-def get_llm_suggestions(
-    report: ATSReport,
-    resume_text: str,
-    provider: str | None = None,
-) -> LLMResult:
-    """Call a cheap LLM for next-step suggestions.
-
-    *provider*: ``"openai"``, ``"anthropic"``, or ``None`` (auto-detect
-    by trying openai first, then anthropic).
-    API keys are read from the standard env vars by each SDK.
-    """
-    if provider is not None and provider not in VALID_PROVIDERS:
-        raise ValueError(
-            f"Invalid provider '{provider}'. Choose from: {', '.join(sorted(VALID_PROVIDERS))}"
-        )
-
-    prompt = _build_user_prompt(report, resume_text)
-
+def _dispatch(system: str, user: str, provider: str | None) -> LLMResult:
+    """Route to the correct provider, with auto-fallback when provider is None."""
     if provider == "openai":
-        return _call_openai(prompt)
+        return _call_openai(system, user)
     if provider == "anthropic":
-        return _call_anthropic(prompt)
+        return _call_anthropic(system, user)
 
-    # Auto: try openai, fall back to anthropic
     last_err: Exception | None = None
     for call_fn in (_call_openai, _call_anthropic):
         try:
-            return call_fn(prompt)
+            return call_fn(system, user)
         except (ImportError, RuntimeError, Exception) as exc:
             last_err = exc
 
@@ -182,3 +180,30 @@ def get_llm_suggestions(
         "Install one (pip install openai / pip install anthropic) "
         f"and set the corresponding API key env var. Last error: {last_err}"
     )
+
+
+def get_llm_suggestions(
+    report: ATSReport,
+    resume_text: str,
+    provider: str | None = None,
+) -> LLMResult:
+    """Given an existing rule-based report, ask the LLM for next-step suggestions."""
+    if provider is not None and provider not in VALID_PROVIDERS:
+        raise ValueError(
+            f"Invalid provider '{provider}'. Choose from: {', '.join(sorted(VALID_PROVIDERS))}"
+        )
+    system, user = _build_supplement_prompt(report, resume_text)
+    return _dispatch(system, user, provider)
+
+
+def get_full_analysis(
+    resume_text: str,
+    provider: str | None = None,
+) -> LLMResult:
+    """Let the LLM do the full ATS analysis — no regex checks needed."""
+    if provider is not None and provider not in VALID_PROVIDERS:
+        raise ValueError(
+            f"Invalid provider '{provider}'. Choose from: {', '.join(sorted(VALID_PROVIDERS))}"
+        )
+    system, user = _build_full_analysis_prompt(resume_text)
+    return _dispatch(system, user, provider)

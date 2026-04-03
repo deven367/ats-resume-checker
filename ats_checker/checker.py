@@ -16,14 +16,19 @@ PHONE_RE = re.compile(
 LINKEDIN_RE = re.compile(r"linkedin\.com/in/[\w-]+", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s]+")
 
-SECTION_KEYWORDS: dict[str, list[str]] = {
+REQUIRED_SECTIONS: dict[str, list[str]] = {
     "experience": ["experience", "work history", "employment", "professional experience"],
     "education": ["education", "academic", "qualifications", "degree"],
     "skills": ["skills", "technical skills", "core competencies", "proficiencies"],
+}
+
+OPTIONAL_SECTIONS: dict[str, list[str]] = {
     "summary": ["summary", "objective", "profile", "about me", "professional summary"],
     "projects": ["projects", "personal projects", "key projects"],
     "certifications": ["certifications", "certificates", "licenses"],
 }
+
+SECTION_KEYWORDS: dict[str, list[str]] = {**REQUIRED_SECTIONS, **OPTIONAL_SECTIONS}
 
 ACTION_VERBS = [
     "achieved", "built", "created", "delivered", "designed", "developed",
@@ -97,18 +102,23 @@ def _check_sections(text: str) -> CheckResult:
     r = CheckResult(name="Standard Sections", score=0, max_score=20)
     text_lower = text.lower()
 
-    found = 0
-    for section, keywords in SECTION_KEYWORDS.items():
+    required_found = 0
+
+    for section, keywords in REQUIRED_SECTIONS.items():
         if any(kw in text_lower for kw in keywords):
             r.passed.append(f"'{section.title()}' section detected.")
-            found += 1
+            required_found += 1
         else:
             r.warnings.append(f"Missing '{section.title()}' section.")
             r.suggestions.append(
                 f"Consider adding a clearly labelled '{section.title()}' section."
             )
 
-    r.score = round((found / len(SECTION_KEYWORDS)) * r.max_score)
+    for section, keywords in OPTIONAL_SECTIONS.items():
+        if any(kw in text_lower for kw in keywords):
+            r.passed.append(f"'{section.title()}' section detected.")
+
+    r.score = round((required_found / len(REQUIRED_SECTIONS)) * r.max_score)
     return r
 
 
