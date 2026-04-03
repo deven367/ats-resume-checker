@@ -96,8 +96,8 @@ def _format_resume_for_prompt(resume_text: str, limit: int = MAX_RESUME_CHARS) -
     return formatted or _truncate_at_sentence(resume_text, limit)
 
 
-def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, str]:
-    """Build a prompt that supplements an existing rule-based report."""
+def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
+    """Build the user prompt payload for supplementing an existing rule-based report."""
     lines = [f"Overall ATS score: {report.overall_score}/100\n"]
     for check in report.checks:
         lines.append(f"## {check.name} [{check.score}/{check.max_score}]")
@@ -109,9 +109,14 @@ def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, 
     lines.append(_format_resume_for_prompt(resume_text))
     return "\n".join(lines)
 
+
+def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, str]:
+    """Build a prompt that supplements an existing rule-based report."""
+    return SUPPLEMENT_PROMPT, _build_user_prompt(report, resume_text)
+
 def _build_full_analysis_prompt(resume_text: str) -> tuple[str, str]:
     """Build a prompt for full LLM-only analysis (no regex report)."""
-    return FULL_ANALYSIS_PROMPT, _truncate_at_sentence(resume_text)
+    return FULL_ANALYSIS_PROMPT, _format_resume_for_prompt(resume_text)
 
 
 def _call_openai(system: str, user: str) -> LLMResult:

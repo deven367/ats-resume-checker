@@ -9,6 +9,7 @@ from ats_checker.llm import (
     LLMResult,
     _build_full_analysis_prompt,
     _build_supplement_prompt,
+    _build_user_prompt,
     _truncate_at_sentence,
     get_full_analysis,
     get_llm_suggestions,
