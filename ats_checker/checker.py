@@ -102,13 +102,12 @@ def _check_sections(text: str) -> CheckResult:
     r = CheckResult(name="Standard Sections", score=0, max_score=20)
     text_lower = text.lower()
 
-    found = 0
-    total = len(REQUIRED_SECTIONS) + len(OPTIONAL_SECTIONS)
+    required_found = 0
 
     for section, keywords in REQUIRED_SECTIONS.items():
         if any(kw in text_lower for kw in keywords):
             r.passed.append(f"'{section.title()}' section detected.")
-            found += 1
+            required_found += 1
         else:
             r.warnings.append(f"Missing '{section.title()}' section.")
             r.suggestions.append(
@@ -118,9 +117,8 @@ def _check_sections(text: str) -> CheckResult:
     for section, keywords in OPTIONAL_SECTIONS.items():
         if any(kw in text_lower for kw in keywords):
             r.passed.append(f"'{section.title()}' section detected.")
-            found += 1
 
-    r.score = round((found / total) * r.max_score)
+    r.score = round((required_found / len(REQUIRED_SECTIONS)) * r.max_score)
     return r
 
 

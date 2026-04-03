@@ -81,6 +81,7 @@ class TestGetLLMSuggestions:
         mock_dispatch.return_value = LLMResult("Anthropic", "claude-3-5-haiku-latest", "Do A, B.")
         result = get_llm_suggestions(dummy_report, "text", provider="anthropic")
         assert result.provider == "Anthropic"
+        mock_dispatch.assert_called_once()
 
     def test_invalid_provider_raises(self, dummy_report):
         with pytest.raises(ValueError, match="Invalid provider"):

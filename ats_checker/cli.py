@@ -132,7 +132,7 @@ def _run_llm(resume_text: str, filepath: Path, provider_flag: str) -> None:
             result = get_full_analysis(resume_text, provider=provider)
         except Exception as exc:
             console.print(f"[red]LLM error:[/red] {exc}")
-            return
+            raise typer.Exit(code=1) from exc
 
     console.print()
     console.print(

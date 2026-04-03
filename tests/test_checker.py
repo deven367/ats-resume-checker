@@ -44,7 +44,7 @@ class TestSections:
         text = "Experience\nEducation\nSkills"
         r = _check_sections(text)
         assert len(r.warnings) == 0
-        assert r.score == round(3 / 6 * 20)
+        assert r.score == r.max_score
 
 
 class TestActionVerbs:
