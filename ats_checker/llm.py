@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from .checker import ATSReport
+from .parser import split_resume_sections
 
 VALID_PROVIDERS = {"openai", "anthropic"}
 
@@ -39,7 +40,7 @@ class LLMResult:
 
 
 def _truncate_at_sentence(text: str, limit: int = MAX_RESUME_CHARS) -> str:
-    """Truncate *text* to at most *limit* chars, breaking at the last sentence boundary."""
+    """Truncate *text* to at most *limit* chars, preferring sentence or line boundaries."""
     if len(text) <= limit:
         return text
     truncated = text[:limit]
@@ -48,11 +49,55 @@ def _truncate_at_sentence(text: str, limit: int = MAX_RESUME_CHARS) -> str:
         pass
     if match and match.end() > limit // 2:
         return truncated[: match.end()].rstrip()
-    return truncated
+    newline = truncated.rfind("\n")
+    if newline > limit // 2:
+        return truncated[:newline].rstrip()
+    return truncated.rstrip()
 
 
-def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, str]:
-    """Build a prompt that supplements an existing rule-based report."""
+def _format_resume_for_prompt(resume_text: str, limit: int = MAX_RESUME_CHARS) -> str:
+    """Build a compact section-aware resume excerpt for prompt input."""
+    sections = [(title, content) for title, content in split_resume_sections(resume_text) if content]
+    if len(sections) <= 1:
+        return _truncate_at_sentence(resume_text, limit)
+
+    parts: list[str] = []
+    remaining = limit
+
+    for idx, (title, content) in enumerate(sections):
+        if remaining <= 0:
+            break
+
+        heading = f"## {title}\n"
+        separator = "\n\n" if idx < len(sections) - 1 else ""
+        if len(heading) > remaining:
+            break
+
+        parts.append(heading)
+        remaining -= len(heading)
+
+        available_for_content = max(0, remaining - len(separator))
+        if available_for_content:
+            sections_left = len(sections) - idx
+            content_budget = available_for_content
+            if sections_left > 1:
+                content_budget = max(120, available_for_content // sections_left)
+            content_budget = min(content_budget, available_for_content)
+            snippet = _truncate_at_sentence(content, content_budget).rstrip()
+            if snippet:
+                parts.append(snippet)
+                remaining -= len(snippet)
+
+        if separator and remaining >= len(separator):
+            parts.append(separator)
+            remaining -= len(separator)
+
+    formatted = "".join(parts).strip()
+    return formatted or _truncate_at_sentence(resume_text, limit)
+
+
+def _build_user_prompt(report: ATSReport, resume_text: str) -> str:
+    """Build the user prompt payload for supplementing an existing rule-based report."""
     lines = [f"Overall ATS score: {report.overall_score}/100\n"]
     for check in report.checks:
         lines.append(f"## {check.name} [{check.score}/{check.max_score}]")
@@ -60,14 +105,18 @@ def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, 
             lines.append(f"  - Warning: {w}")
         for s in check.suggestions:
             lines.append(f"  - Suggestion: {s}")
-    lines.append("\n--- Resume text (truncated) ---")
-    lines.append(_truncate_at_sentence(resume_text))
-    return SUPPLEMENT_PROMPT, "\n".join(lines)
+    lines.append("\n--- Resume text (section-aware, truncated) ---")
+    lines.append(_format_resume_for_prompt(resume_text))
+    return "\n".join(lines)
 
+
+def _build_supplement_prompt(report: ATSReport, resume_text: str) -> tuple[str, str]:
+    """Build a prompt that supplements an existing rule-based report."""
+    return SUPPLEMENT_PROMPT, _build_user_prompt(report, resume_text)
 
 def _build_full_analysis_prompt(resume_text: str) -> tuple[str, str]:
     """Build a prompt for full LLM-only analysis (no regex report)."""
-    return FULL_ANALYSIS_PROMPT, _truncate_at_sentence(resume_text)
+    return FULL_ANALYSIS_PROMPT, _format_resume_for_prompt(resume_text)
 
 
 def _call_openai(system: str, user: str) -> LLMResult:

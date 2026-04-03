@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ats_checker.parser import extract_text
+from ats_checker.parser import extract_text, split_resume_sections
 
 
 def test_extract_docx(sample_docx: Path):
@@ -25,3 +25,22 @@ def test_docx_suffix_case(sample_docx: Path):
     sample_docx.rename(upper)
     text = extract_text(upper)
     assert "Jane Doe" in text
+
+
+def test_split_resume_sections_detects_common_headings(good_resume_text: str):
+    sections = split_resume_sections(good_resume_text)
+    names = [name for name, _ in sections]
+
+    assert names[:2] == ["Header", "Professional Summary"]
+    assert "Experience" in names
+    assert "Education" in names
+    assert "Skills" in names
+
+    section_map = dict(sections)
+    assert "John Doe" in section_map["Header"]
+    assert "Led a team of 8 engineers" in section_map["Experience"]
+
+
+def test_split_resume_sections_falls_back_to_single_block(bare_resume_text: str):
+    sections = split_resume_sections(bare_resume_text)
+    assert sections == [("Resume", bare_resume_text)]

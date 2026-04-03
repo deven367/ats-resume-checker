@@ -1,4 +1,4 @@
-# CLAUDE.md — ATS Resume Checker
+# ATS Resume Checker
 
 ## Project overview
 
@@ -82,3 +82,4 @@ python -m ats_checker resume.docx            # module invocation
 - `llm.py` has two modes: `get_llm_suggestions()` (supplement existing report) and `get_full_analysis()` (LLM-only, no regex)
 - Anthropic model alias is `claude-3-5-haiku-latest` (not `claude-haiku-4-5`)
 - Always validate CLI flag inputs; `--llm` only accepts `openai`, `anthropic`, `auto`
+- Preserve the LLM prompt helper contract: `_build_supplement_prompt()` returns `(system, user)`, and both LLM prompt paths should reuse the section-aware resume formatter so later sections survive truncation
