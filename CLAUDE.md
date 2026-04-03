@@ -1,4 +1,4 @@
-# CLAUDE.md — ATS Resume Checker
+# ATS Resume Checker
 
 ## Project overview
 
