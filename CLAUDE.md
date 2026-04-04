@@ -53,7 +53,7 @@ python -m ats_checker resume.docx            # module invocation
 ## Key design decisions
 
 - Rule-based scoring is fast, offline, deterministic — runs without any API key
-- LLM step is opt-in (`--llm` flag) and uses cheap models (gpt-4o-mini / claude-3-5-haiku)
+- LLM step is opt-in (`--llm` flag) and use SOTA LLMs (gpt-5.4 / claude-4-6-opus)
 - LLM module uses official SDKs (`openai`, `anthropic`) — no raw HTTP calls
 - Single `analyse_resume(text) -> ATSReport` function as the core API
 - All checks return `CheckResult` with `passed`, `warnings`, and `suggestions`
@@ -67,9 +67,10 @@ python -m ats_checker resume.docx            # module invocation
 
 ## Development notes
 
-- Workspace uses a venv created from miniforge Python 3.10 (`.venv/`)
+- Workspace uses a venv created with uv Python 3.13 (`.venv/`)
+- You are free to install dependencies in this `.venv`
+- Once the `.venv` is activated, there is no need to activate it again.
 - `pyproject.toml` declares the `ats-check` console script
-- `requirements.txt` kept in sync for users who prefer `pip install -r`
 - Uses `[dependency-groups]` (PEP 735) for test/anthropic deps — requires `uv`
 - Run tests: `.venv/bin/python -m pytest tests/ -v` (or `uv run pytest tests/ -v`)
 - CI runs on Python 3.10-3.12 via GitHub Actions with `uv`
@@ -80,6 +81,9 @@ python -m ats_checker resume.docx            # module invocation
 - Summary, Projects, Certifications are optional resume sections — don't penalize if missing
 - When `--llm` is used, regex checks are redundant — let the LLM do the full analysis
 - `llm.py` has two modes: `get_llm_suggestions()` (supplement existing report) and `get_full_analysis()` (LLM-only, no regex)
-- Anthropic model alias is `claude-3-5-haiku-latest` (not `claude-haiku-4-5`)
 - Always validate CLI flag inputs; `--llm` only accepts `openai`, `anthropic`, `auto`
 - Preserve the LLM prompt helper contract: `_build_supplement_prompt()` returns `(system, user)`, and both LLM prompt paths should reuse the section-aware resume formatter so later sections survive truncation
+- The frontend can expose provider/model dropdowns, but the backend should validate provider-model pairs and set the correct env var per provider (`OPENAI_API_KEY` vs `ANTHROPIC_API_KEY`)
+- OpenAI model choices in the frontend should track current GPT-5.4 family docs, and Anthropic choices should track current Claude 4.6/4.5 docs rather than older GPT-4o or Claude 3.5/3.7-era defaults
+- Current OpenAI Chat Completions calls for GPT-5.4-class models should use `max_completion_tokens`; `max_tokens` triggers a 400 unsupported-parameter error
+- The current web frontend is FastHTML-based (`python-fasthtml`), using a GET home page, a small HTMX model-options route, and a multipart POST analyze route for file uploads
