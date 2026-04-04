@@ -24,6 +24,7 @@ include = ["ats_checker*"]
 [dependency-groups]
 anthropic = ["anthropic>=0.30.0"]
 test = ["pytest>=8.0", "pytest-cov>=6.0"]
+web = ["python-fasthtml>=0.12.7"]
 
 [tool.coverage.run]
 branch = true
