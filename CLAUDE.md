@@ -84,12 +84,13 @@ python -m ats_checker resume.docx            # module invocation
 - Always validate CLI flag inputs; `--llm` only accepts `openai`, `anthropic`, `auto`
 - Preserve the LLM prompt helper contract: `_build_supplement_prompt()` returns `(system, user)`, and both LLM prompt paths should reuse the section-aware resume formatter so later sections survive truncation
 - Validate web provider/model pairs before extraction. Pass pasted keys directly to request-local SDK clients; never put them in process environment variables.
-- OpenAI model choices in the frontend should track current GPT-5.4 family docs, and Anthropic choices should track current Claude 4.6/4.5 docs rather than older GPT-4o or Claude 3.5/3.7-era defaults
-- Current OpenAI Chat Completions calls for GPT-5.4-class models should use `max_completion_tokens`; `max_tokens` triggers a 400 unsupported-parameter error
-- The current web frontend is FastHTML-based (`python-fasthtml`), using a GET home page, a small HTMX model-options route, and a multipart POST analyze route for file uploads
+- Populate frontend models with authenticated `client.models.list()` calls, not a static catalogue. Iterate the SDK page inside the client context to follow Anthropic pagination. API keys belong in `POST /model-options` bodies, never GET query strings, environment mutations, or shared caches.
+- Current OpenAI Chat Completions calls should use `max_completion_tokens`, not `max_tokens`, and omit custom temperature so reasoning models can also be selected.
+- The FastHTML frontend uses a GET home page, HTMX POST model discovery triggered by provider/API-key changes, and a multipart POST analyze route. Synchronize discovery requests on the form so stale responses cannot overwrite the latest selection.
 - Use `FastHTML` directly without implicit static routes; `fast_app()` exposes the working directory and its helper does not confine traversal. Render feedback with `MarkdownIt("commonmark", {"html": False})` server-side, not unsanitized `MarkdownJS()`.
 - CI and local full-suite setup use `uv sync --locked --group test --group anthropic --group web`. Pytest collects branch coverage with `--cov=ats_checker` and enforces 80%; focused regressions use `--no-cov`.
 - DOCX extraction traverses body tables in order, includes unlinked headers/footers once, and preserves direct or inherited list numbering; merged table cells are not duplicated.
 - Preserve full sectioned prompts when they fit the formatted-input cap; budget sections only for oversized resumes. Reject token-limit responses and combine all Anthropic text blocks.
 - Web parsing and SDK calls run in the framework thread pool. Concurrent requests and failure paths must leave environment credentials unchanged; CLI callers still use SDK environment defaults.
 - Scoring shares parser heading aliases, matches distinct whole-word verbs, and awards numeric credit only for English achievement contexts, not dates/contact metadata or link contents.
+- OpenAI `/models` lacks endpoint-capability metadata: filter known incompatible names, then validate provider/model namespaces instead of pinning returned IDs. Failed discovery clears choices and reports a generic error without reflecting provider errors that may contain the key.

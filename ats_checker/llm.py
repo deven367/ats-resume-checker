@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
+
 from .checker import ATSReport
 from .parser import split_resume_sections
 
@@ -13,19 +14,12 @@ DEFAULT_MODELS = {
     "openai": "gpt-5.4",
     "anthropic": "claude-opus-4-6",
 }
-MODEL_OPTIONS = {
-    "openai": (
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "gpt-4.1",
-    ),
-    "anthropic": (
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-    ),
-}
+_OPENAI_CHAT_MODEL_RE = re.compile(
+    r"(?:ft:)?(?:gpt-[\w.-]+|chatgpt-[\w.-]+|o\d+(?:-[\w.-]+)?)(?::[\w:.-]+)?"
+)
+_NON_CHAT_MODEL_RE = re.compile(
+    r"(?:^|-)(?:audio|realtime|transcribe|tts|image|instruct|pro|codex|search|deep-research)(?:-|$)"
+)
 
 _SENTENCE_END_RE = re.compile(r"[.!?]\s+")
 MAX_RESUME_CHARS = 50_000
@@ -146,6 +140,17 @@ def _build_full_analysis_prompt(resume_text: str) -> tuple[str, str]:
     return FULL_ANALYSIS_PROMPT, _format_resume_for_prompt(resume_text)
 
 
+def _is_chat_model(provider: str, model: str) -> bool:
+    if provider == "anthropic":
+        return re.fullmatch(r"claude-[\w.-]+", model) is not None
+    # ponytail: /models has no endpoint metadata; extend the name filter for new families.
+    base_model = model.split(":")[1] if model.startswith("ft:") else model
+    return (
+        _OPENAI_CHAT_MODEL_RE.fullmatch(model) is not None
+        and _NON_CHAT_MODEL_RE.search(base_model) is None
+    )
+
+
 def _validate_provider_model(provider: str | None, model: str | None) -> None:
     if provider is not None and provider not in VALID_PROVIDERS:
         raise ValueError(
@@ -158,12 +163,26 @@ def _validate_provider_model(provider: str | None, model: str | None) -> None:
     if provider is None:
         raise ValueError("A model can only be selected when provider is set explicitly.")
 
-    allowed_models = MODEL_OPTIONS[provider]
-    if model not in allowed_models:
-        allowed = ", ".join(allowed_models)
-        raise ValueError(
-            f"Invalid model '{model}' for provider '{provider}'. Choose from: {allowed}"
-        )
+    if not _is_chat_model(provider, model):
+        raise ValueError(f"Invalid model '{model}' for provider '{provider}': choose a text-chat model.")
+
+
+def get_available_models(provider: str, *, api_key: str) -> list[str]:
+    """List accessible text-chat models through the provider's authenticated SDK."""
+    _validate_provider_model(provider, None)
+    api_key = api_key.strip()
+    if not api_key:
+        raise ValueError("An API key is required to list models.")
+
+    if provider == "openai":
+        from openai import OpenAI as Client
+    else:
+        from anthropic import Anthropic as Client
+
+    with Client(api_key=api_key, timeout=15.0, max_retries=0) as client:
+        return list(dict.fromkeys(
+            item.id for item in client.models.list() if _is_chat_model(provider, item.id)
+        ))
 
 
 def _call_openai(system: str, user: str, model: str, *, api_key: str | None = None) -> LLMResult:
@@ -177,7 +196,6 @@ def _call_openai(system: str, user: str, model: str, *, api_key: str | None = No
                 {"role": "user", "content": user},
             ],
             max_completion_tokens=16384,
-            temperature=0.7,
         )
 
     if not resp.choices:
