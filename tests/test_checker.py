@@ -1,5 +1,7 @@
 """Tests for the rule-based ATS checker."""
 
+import pytest
+
 from ats_checker.checker import (
     _check_action_verbs,
     _check_contact_info,
@@ -85,14 +87,11 @@ class TestLength:
 
 
 class TestFormattingHints:
-    def test_good_bullets(self):
-        lines = ["- bullet point"] * 6 + ["Normal line"]
-        r = _check_formatting_hints("\n".join(lines))
-        assert r.score >= 5
-
-    def test_no_bullets(self):
-        r = _check_formatting_hints("No bullet points here at all.")
-        assert any("bullet" in w.lower() for w in r.warnings)
+    def test_bullet_points_add_formatting_credit(self):
+        lines = ["Delivered a project"] * 6
+        plain = _check_formatting_hints("\n".join(lines))
+        bulleted = _check_formatting_hints("\n".join(f"- {line}" for line in lines))
+        assert bulleted.score == plain.score + 5
 
 
 class TestSkillsKeywords:
@@ -119,3 +118,36 @@ class TestAnalyseResume:
     def test_max_scores_sum_to_100(self, good_resume_text: str):
         report = analyse_resume(good_resume_text)
         assert sum(c.max_score for c in report.checks) == 100
+
+
+def test_section_keywords_in_prose_are_not_headings():
+    prose = "I have experience, a degree, and communication skills, writing, music, travel."
+    assert _check_sections(prose).score == 0
+    assert _check_skills_keywords(prose).score == 0
+
+
+def test_section_heading_aliases_use_parser_normalization():
+    assert _check_sections("WORK HISTORY:\nAcademic\nSkills & Tools").score == 20
+
+
+def test_action_verbs_require_whole_words_and_do_not_inflate_on_repetition():
+    assert _check_action_verbs("Knowledge of SQL and skilled troubleshooting.").score == 0
+    assert _check_action_verbs("Led led LED " * 10).score == 5
+
+
+def test_contact_details_and_dates_are_not_achievement_metrics():
+    metadata = (
+        "jane@example.com | (555) 123-4567\nExperience\nCompany 2019-2021\n"
+        "Education\nBS 2015-2019\nhttps://example.com/30%25\n"
+    )
+    assert _check_quantifiable_results(metadata).score == 0
+    assert _check_quantifiable_results(metadata + "Managed a team of 8").score == 5
+
+
+@pytest.mark.parametrize("achievement", [
+    "Managed a team of 8", "Reduced latency by 30%", "Saved $50K annually",
+    "Served 2000 clients during 2020-2022", "Reduced latency to 800ms",
+    "Designed APIs serving 10M+ requests/day",
+])
+def test_contextual_achievement_quantities_receive_credit(achievement):
+    assert _check_quantifiable_results(achievement).score == 5

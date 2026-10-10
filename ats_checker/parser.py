@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-
+from collections.abc import Iterator
 from pathlib import Path
 
 import pdfplumber
 from docx import Document
+from docx.text.paragraph import Paragraph
 
 _RAW_SECTION_HEADINGS: dict[str, tuple[str, ...]] = {
     "Professional Summary": (
@@ -124,6 +125,43 @@ def _extract_pdf(filepath: Path) -> str:
     return "\n".join(pages)
 
 
+def _docx_lines(container) -> Iterator[str]:
+    for block in container.iter_inner_content():
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if not text:
+                continue
+            properties = block._p.pPr
+            numbering = properties.numPr if properties is not None else None
+            style = block.style
+            seen_styles = set()
+            while numbering is None and style is not None and style.style_id not in seen_styles:
+                seen_styles.add(style.style_id)
+                properties = style.element.pPr
+                numbering = properties.numPr if properties is not None else None
+                style = style.base_style
+            if numbering is not None and (numbering.numId is None or numbering.numId.val != 0):
+                text = f"- {text}"
+            yield text
+        else:
+            seen_cells = set()
+            for row in block.rows:
+                for cell in row.cells:
+                    if cell._tc not in seen_cells:
+                        seen_cells.add(cell._tc)
+                        yield from _docx_lines(cell)
+
+
 def _extract_docx(filepath: Path) -> str:
     doc = Document(str(filepath))
-    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    lines = []
+    for section in doc.sections:
+        for header in (section.header, section.first_page_header, section.even_page_header):
+            if not header.is_linked_to_previous:
+                lines.extend(_docx_lines(header))
+    lines.extend(_docx_lines(doc))
+    for section in doc.sections:
+        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+            if not footer.is_linked_to_previous:
+                lines.extend(_docx_lines(footer))
+    return "\n".join(lines)
