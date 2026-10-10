@@ -32,7 +32,11 @@ from markdown_it import MarkdownIt
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from ats_checker.llm import DEFAULT_MODELS, MODEL_OPTIONS, _validate_provider_model
+from ats_checker.llm import (
+    DEFAULT_MODELS,
+    _validate_provider_model,
+    get_available_models,
+)
 from ats_checker.web import UploadedResumeAnalysis, analyse_resume_upload
 
 
@@ -67,28 +71,38 @@ PAGE_STYLE = Style(
 )
 
 
-def _model_select(provider: str, selected_model: str | None = None) -> Div:
-    options = MODEL_OPTIONS[provider]
-    current_model = selected_model if selected_model in options else DEFAULT_MODELS[provider]
+def _model_select(
+    provider: str,
+    selected_model: str | None = None,
+    models: list[str] | tuple[str, ...] = (),
+    error: str | None = None,
+) -> Div:
+    if selected_model not in models:
+        preferred = DEFAULT_MODELS[provider]
+        selected_model = preferred if preferred in models else next(iter(models), None)
     return Div(
-        Label("Model", _model_select_control(provider, current_model)),
+        Label(
+            "Model",
+            Select(
+                *(
+                    [
+                        Option(name, value=name, selected=name == selected_model)
+                        for name in models
+                    ]
+                    or [Option("Enter API key to load models", value="", selected=True)]
+                ),
+                name="model",
+                id="model",
+                required=True,
+            ),
+        ),
+        _message_box(error, error=True) if error else None,
         id="model-field",
-    )
-
-
-def _model_select_control(provider: str, selected_model: str) -> Select:
-    return Select(
-        *[
-            Option(model_name, value=model_name, selected=model_name == selected_model)
-            for model_name in MODEL_OPTIONS[provider]
-        ],
-        name="model",
-        id="model",
+        aria_live="polite",
     )
 
 
 def _analysis_form(provider: str = "openai", selected_model: str | None = None) -> Card:
-    selected_model = selected_model or DEFAULT_MODELS[provider]
     return Card(
         Form(
             Fieldset(
@@ -101,10 +115,11 @@ def _analysis_form(provider: str = "openai", selected_model: str | None = None) 
                             Option("Anthropic", value="anthropic", selected=provider == "anthropic"),
                             name="provider",
                             id="provider",
-                            hx_get="/model-options",
+                            hx_post="/model-options",
                             hx_target="#model-field",
                             hx_swap="outerHTML",
-                            hx_include="[name='provider']",
+                            hx_include="[name='provider'],[name='api_key'],[name='model']",
+                            hx_sync="closest form:replace",
                         ),
                     ),
                     _model_select(provider, selected_model),
@@ -117,6 +132,13 @@ def _analysis_form(provider: str = "openai", selected_model: str | None = None) 
                             type="password",
                             name="api_key",
                             placeholder="Paste the matching provider key",
+                            required=True,
+                            hx_post="/model-options",
+                            hx_trigger="change",
+                            hx_target="#model-field",
+                            hx_swap="outerHTML",
+                            hx_include="[name='provider'],[name='api_key'],[name='model']",
+                            hx_sync="closest form:replace",
                         ),
                     ),
                     Label(
@@ -125,7 +147,7 @@ def _analysis_form(provider: str = "openai", selected_model: str | None = None) 
                     ),
                     cls="grid-two",
                 ),
-                Small("An API key is required for LLM-powered resume analysis."),
+                Small("Enter the matching API key to load available text models."),
                 Button("Analyze", type="submit"),
             ),
             method="post",
@@ -196,13 +218,25 @@ def home():
     return _page()
 
 
-@app.get("/model-options")
-def model_options(provider: str = "openai"):
+@app.post("/model-options")
+async def model_options(provider: str = "openai", api_key: str = "", model: str | None = None):
     try:
         _validate_provider_model(provider, None)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _model_select(provider)
+    if not api_key.strip():
+        return _model_select(provider)
+    try:
+        models = await run_in_threadpool(get_available_models, provider, api_key=api_key)
+    except Exception:
+        return _model_select(
+            provider,
+            error="Could not load models. Check the provider, API key, SDK installation, and connection.",
+        )
+    return _model_select(
+        provider, model, models,
+        error=None if models else "No compatible text models were returned for this API key.",
+    )
 
 
 @app.post("/analyze")

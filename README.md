@@ -75,8 +75,8 @@ The repo now includes a minimal FastHTML frontend in `fasthtml_app.py`.
 The UI lets a user:
 
 - choose OpenAI or Anthropic
-- switch between a small set of supported models for that provider
-- paste the matching API key
+- paste the matching API key to load the models available to that account
+- select a text-chat model returned by the provider's authenticated model-list endpoint
 - upload a PDF or DOCX resume
 - click **Analyze** for a full LLM ATS review and an optimized resume
 - read Markdown feedback rendered server-side, with raw HTML and unsafe links disabled
@@ -87,7 +87,18 @@ unchanged. Parsing and provider calls run off the event loop. Python callers can
 Invalid provider/model selections and missing uploads return HTTP 400 with a safe retry
 form. Selections are validated before resume extraction or provider calls.
 
-Current default models:
+The dropdown refreshes when the API key loses focus after a change or the provider
+changes. HTMX sends credentials in the body of `POST /model-options`, never in a URL;
+the server calls `client.models.list()` and follows SDK pagination. Missing keys,
+failed requests, and empty catalogues leave no selectable model and show guidance
+instead of falling back to a stale hardcoded list. Keys and catalogues are not cached.
+
+OpenAI's model-list endpoint does not expose endpoint capabilities. The app uses a
+name-based filter to exclude known audio, image, legacy-completion, and Responses-only
+models from its text-chat dropdown. New GPT/ChatGPT/reasoning and Claude IDs do not need
+to be added to an allowlist; the selected provider still enforces model availability.
+
+Preferred models (selected only when returned for the supplied key):
 
 - OpenAI: `gpt-5.4`
 - Anthropic: `claude-opus-4-6`
