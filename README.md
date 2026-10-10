@@ -7,12 +7,16 @@ A simple CLI tool that scores your resume for ATS (Applicant Tracking System) co
 | Check                | Weight | What it looks for                                   |
 |----------------------|--------|-----------------------------------------------------|
 | Contact Information  | 15     | Email, phone number, LinkedIn URL                   |
-| Standard Sections    | 20     | Experience, Education, Skills, Summary, etc.        |
-| Action Verbs         | 15     | Strong verbs at the start of bullet points          |
-| Quantifiable Results | 15     | Numbers, percentages, dollar amounts                |
+| Standard Sections    | 20     | Standalone Experience, Education, and Skills headings |
+| Action Verbs         | 15     | Distinct, whole-word action verbs                   |
+| Quantifiable Results | 15     | Achievement percentages, money, counts, and timings |
 | Resume Length        | 10     | Word count (sweet spot: 300-800 words for 1 page)   |
 | Formatting & ATS Tips| 15     | Bullet points, URLs, special characters             |
 | Skills / Keywords    | 10     | Dedicated skills section with parseable keywords    |
+
+Summary, Projects, and Certifications are optional. Section checks reuse the parser's
+heading aliases; keyword-list credit is scoped to Skills content. Contact numbers,
+dates, and numbers in links are not achievement metrics. Metric contexts are English.
 
 ## Installation
 
@@ -32,6 +36,12 @@ To also install the Anthropic provider:
 uv sync --group anthropic
 ```
 
+To run the simple web UI:
+
+```bash
+uv sync --group web
+```
+
 ## Usage
 
 ```bash
@@ -41,12 +51,58 @@ ats-check path/to/resume.docx
 
 # Add LLM-powered next steps (requires OPENAI_API_KEY or ANTHROPIC_API_KEY)
 ats-check resume.pdf --llm auto          # auto-detect provider from env
-ats-check resume.pdf --llm openai        # force OpenAI (gpt-4o-mini)
-ats-check resume.pdf --llm anthropic     # force Anthropic (claude-3-5-haiku)
+ats-check resume.pdf --llm openai        # force OpenAI (default: gpt-5.4)
+ats-check resume.pdf --llm anthropic     # force Anthropic (default: claude-opus-4-6)
 
 # Run as a Python module
 python -m ats_checker resume.pdf
 ```
+
+DOCX extraction includes tables, section headers/footers, and native Word list markers.
+
+LLM prompts preserve complete section content when it fits the input limit.
+Token-limit responses raise an explicit error instead of presenting a partial analysis
+as complete; Anthropic feedback includes every text block.
+
+## Web UI
+
+The repo now includes a minimal FastHTML frontend in `fasthtml_app.py`.
+
+```bash
+.venv/bin/python fasthtml_app.py
+```
+
+The UI lets a user:
+
+- choose OpenAI or Anthropic
+- switch between a small set of supported models for that provider
+- paste the matching API key
+- upload a PDF or DOCX resume
+- click **Analyze** for a full LLM ATS review and an optimized resume
+- read Markdown feedback rendered server-side, with raw HTML and unsafe links disabled
+
+Web API keys go directly to request-local SDK clients; the process environment is
+unchanged. Parsing and provider calls run off the event loop. Python callers can pass
+`api_key=` with an explicit provider; the CLI continues to use environment credentials.
+Invalid provider/model selections and missing uploads return HTTP 400 with a safe retry
+form. Selections are validated before resume extraction or provider calls.
+
+Current default models:
+
+- OpenAI: `gpt-5.4`
+- Anthropic: `claude-opus-4-6`
+
+## Deployment
+
+GitHub Pages is **not** enough for this app as written. The current parser and analysis logic run in Python, and the OpenAI call should happen server-side.
+
+Use one of these instead:
+
+- Railway / Render / Fly.io / any Python host that can run a FastHTML app
+- GitHub Pages only if you split the app into a static frontend plus a separate backend API
+
+The web app does not serve local files. If static assets are added, mount a dedicated
+asset directory with path-confined static serving; do not expose the working directory.
 
 ## Example output
 
@@ -63,7 +119,7 @@ python -m ats_checker resume.pdf
 
   ...
 
-╭──── AI Next Steps (OpenAI / gpt-4o-mini) ────╮
+╭──── AI Next Steps (OpenAI / gpt-5.4) ────────╮
 │                                               │
 │  1. Add a 'Projects' section showcasing ...   │
 │  2. Expand bullet points with more detail ... │
@@ -76,8 +132,10 @@ python -m ats_checker resume.pdf
 
 ```bash
 # Run tests
-uv sync --group test
+uv sync --locked --group test --group anthropic --group web
 uv run pytest tests/ -v
 ```
 
 Tests run in CI on Python 3.10, 3.11, and 3.12 via GitHub Actions.
+Coverage is collected on every full run; CI fails below 80%. For a focused regression
+run, use `--no-cov` so a single test module is not evaluated against the full-suite gate.

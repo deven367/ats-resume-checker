@@ -4,5 +4,8 @@ __pycache__/
 dist/
 build/
 .venv/
+.sesskey
 *.docx
 *.pdf
+.coverage
+htmlcov/

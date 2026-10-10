@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .parser import SECTION_HEADINGS, _normalize_heading, split_resume_sections
+
 # ---------------------------------------------------------------------------
 # Patterns
 # ---------------------------------------------------------------------------
@@ -16,19 +18,8 @@ PHONE_RE = re.compile(
 LINKEDIN_RE = re.compile(r"linkedin\.com/in/[\w-]+", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s]+")
 
-REQUIRED_SECTIONS: dict[str, list[str]] = {
-    "experience": ["experience", "work history", "employment", "professional experience"],
-    "education": ["education", "academic", "qualifications", "degree"],
-    "skills": ["skills", "technical skills", "core competencies", "proficiencies"],
-}
-
-OPTIONAL_SECTIONS: dict[str, list[str]] = {
-    "summary": ["summary", "objective", "profile", "about me", "professional summary"],
-    "projects": ["projects", "personal projects", "key projects"],
-    "certifications": ["certifications", "certificates", "licenses"],
-}
-
-SECTION_KEYWORDS: dict[str, list[str]] = {**REQUIRED_SECTIONS, **OPTIONAL_SECTIONS}
+REQUIRED_SECTIONS = ("Experience", "Education", "Skills")
+OPTIONAL_SECTIONS = ("Professional Summary", "Projects", "Certifications")
 
 ACTION_VERBS = [
     "achieved", "built", "created", "delivered", "designed", "developed",
@@ -39,7 +30,17 @@ ACTION_VERBS = [
     "streamlined", "supervised", "transformed",
 ]
 
-QUANTIFIER_RE = re.compile(r"\d+[%$xX]|\$\d|#?\d{2,}")
+ACTION_VERB_RE = re.compile(r"\b(?:" + "|".join(ACTION_VERBS) + r")\b")
+_METRIC_NUMBER = r"\d+(?:,\d{3})*(?:\.\d+)?[kmb]?\+?"
+# ponytail: English metric contexts; extend units for other resume languages.
+QUANTIFIER_RE = re.compile(
+    rf"\bteam\s+of\s+{_METRIC_NUMBER}(?!\w)|[$£€]\s*{_METRIC_NUMBER}(?!\w)|"
+    rf"(?<!\w){_METRIC_NUMBER}\s*(?:(?:junior|senior|github)\s+)?"
+    r"(?:%|x\b|(?:ms|seconds?|minutes?|hours?|days?|users?|requests?|clients?|"
+    r"customers?|projects?|developers?|engineers?|people|members?|reports?|"
+    r"stars?|employees?|teams?|tickets?|transactions?|servers?|services?)\b)",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,11 @@ class ATSReport:
 # ---------------------------------------------------------------------------
 # Individual checks
 # ---------------------------------------------------------------------------
+
+def _resume_headings(text: str) -> set[str]:
+    lines = {_normalize_heading(line) for line in text.splitlines()}
+    return {title for title, aliases in SECTION_HEADINGS.items() if not lines.isdisjoint(aliases)}
+
 
 def _check_contact_info(text: str) -> CheckResult:
     r = CheckResult(name="Contact Information", score=0, max_score=15)
@@ -100,23 +106,23 @@ def _check_contact_info(text: str) -> CheckResult:
 
 def _check_sections(text: str) -> CheckResult:
     r = CheckResult(name="Standard Sections", score=0, max_score=20)
-    text_lower = text.lower()
+    headings = _resume_headings(text)
 
     required_found = 0
 
-    for section, keywords in REQUIRED_SECTIONS.items():
-        if any(kw in text_lower for kw in keywords):
-            r.passed.append(f"'{section.title()}' section detected.")
+    for section in REQUIRED_SECTIONS:
+        if section in headings:
+            r.passed.append(f"'{section}' section detected.")
             required_found += 1
         else:
-            r.warnings.append(f"Missing '{section.title()}' section.")
+            r.warnings.append(f"Missing '{section}' section.")
             r.suggestions.append(
-                f"Consider adding a clearly labelled '{section.title()}' section."
+                f"Consider adding a clearly labelled '{section}' section."
             )
 
-    for section, keywords in OPTIONAL_SECTIONS.items():
-        if any(kw in text_lower for kw in keywords):
-            r.passed.append(f"'{section.title()}' section detected.")
+    for section in OPTIONAL_SECTIONS:
+        if section in headings:
+            r.passed.append(f"'{section}' section detected.")
 
     r.score = round((required_found / len(REQUIRED_SECTIONS)) * r.max_score)
     return r
@@ -125,7 +131,7 @@ def _check_sections(text: str) -> CheckResult:
 def _check_action_verbs(text: str) -> CheckResult:
     r = CheckResult(name="Action Verbs", score=0, max_score=15)
     text_lower = text.lower()
-    used = [v for v in ACTION_VERBS if v in text_lower]
+    used = set(ACTION_VERB_RE.findall(text_lower))
 
     if len(used) >= 8:
         r.score = 15
@@ -151,7 +157,8 @@ def _check_action_verbs(text: str) -> CheckResult:
 
 def _check_quantifiable_results(text: str) -> CheckResult:
     r = CheckResult(name="Quantifiable Results", score=0, max_score=15)
-    matches = QUANTIFIER_RE.findall(text)
+    metric_text = URL_RE.sub(" ", EMAIL_RE.sub(" ", text))
+    matches = QUANTIFIER_RE.findall(metric_text)
 
     if len(matches) >= 5:
         r.score = 15
@@ -230,11 +237,7 @@ def _check_formatting_hints(text: str) -> CheckResult:
 
 def _check_skills_keywords(text: str) -> CheckResult:
     r = CheckResult(name="Skills / Keywords", score=0, max_score=10)
-    text_lower = text.lower()
-
-    has_skills_section = any(
-        kw in text_lower for kw in SECTION_KEYWORDS["skills"]
-    )
+    has_skills_section = "Skills" in _resume_headings(text)
     if has_skills_section:
         r.score += 5
         r.passed.append("Skills section found.")
@@ -244,7 +247,10 @@ def _check_skills_keywords(text: str) -> CheckResult:
             "Add a 'Skills' section listing your key technical and soft skills."
         )
 
-    comma_or_pipe = len(re.findall(r"[,|]", text))
+    comma_or_pipe = sum(
+        len(re.findall(r"[,|]", content))
+        for title, content in split_resume_sections(text) if title == "Skills"
+    )
     if comma_or_pipe >= 5:
         r.score += 5
         r.passed.append("Looks like skills/keywords are listed clearly.")
